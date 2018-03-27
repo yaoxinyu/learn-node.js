@@ -1,0 +1,40 @@
+# 启动标志
+startOptions:
+  mainServer: true
+  broadcast: true
+  video: true
+  asset: true
+  bigScreen: true
+  linkAffair: true
+
+# 数据库配置
+dbConfig:
+  host: db.subctrl.smartcitybase.com
+  user: ipole
+  password: 'ipole@123#'
+  database: ipole
+  port: 9003
+  Promise: bluebird
+  wait_timeout: 10
+
+# 视频服务配置
+httpConfig:
+  host: gcvideo.smartcitybase.com
+  port: 8080
+  projectName: /ustc-vss
+
+# activeMQ配置
+activeMQ:
+  serverIP: mq.subctrl.smartcitybase.com
+  port: 61613
+  retries: -1
+  retryDelay: 60000
+  loginName: admin
+  password: admin
+
+# 美电贝尔广播服务配置
+broadcastConfig:
+  IP: 172.17.2.105
+  port: 8888
+  userName: admin
+  password: admin

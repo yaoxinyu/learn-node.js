@@ -1,0 +1,8 @@
+{
+  "serverIP": "mq.subctrl.smartcitybase.com",
+  "port": 61613,
+  "retries": -1,
+  "retryDelay": 60000,
+  "loginName": "admin",
+  "password": "admin"
+}

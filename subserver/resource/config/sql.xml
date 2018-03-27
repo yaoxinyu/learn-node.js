@@ -1,0 +1,793 @@
+<sqls>
+    <sql id="queryFactoryCodeByAssetNo">
+        SELECT factory_code FROM r_device_asset WHERE r_device_asset.device_code = ?;
+    </sql>
+    <sql id="queryAllByAssetNo">
+        SELECT * FROM r_device_asset WHERE r_device_asset.device_code = ?;
+    </sql>
+    <sql id="queryRemarkByAssetNo">
+        SELECT remark FROM r_device_asset WHERE r_device_asset.device_code = ?;
+    </sql>
+    <sql id="queryIpAndPortByAssetNo">
+        SELECT IFNULL(`serve`.vpn_ip, `serve`.ip) AS ip
+        , IFNULL(service.vpn_port, service.`port`) AS `port`
+        FROM r_device_relation r, r_service_extend service, r_server_extend `serve`
+        WHERE `serve`.server_id = r.parent_device_id
+        AND service.service_id = r.child_device_id
+        AND r.child_device_id = (
+        SELECT rela.parent_device_id
+        FROM ipole.r_device_relation rela, ipole.r_device_asset asset
+        WHERE rela.child_device_id = asset.device_id
+        AND rela.parent_device_type = '2005'
+        AND asset.device_code = ?
+        )
+        AND service.service_type = 31
+        AND r.parent_device_type = '0201';
+    </sql>
+    <sql id="queryIpAndPortByAssetNoAndOrg">
+        SELECT IFNULL(`serve`.vpn_ip, `serve`.ip) AS ip, `port`
+        FROM r_device_relation r, (
+        SELECT service_id, IFNULL(vpn_port, `port`) AS `port`
+        FROM r_service_extend, r_device_asset a, s_org_level l
+        WHERE a.device_id = service_id
+        AND a.org_code = l.child_org_code
+        AND l.org_code IN (
+        SELECT org_code
+        FROM r_device_asset
+        WHERE device_code = ?
+        )
+        AND service_type = 31
+        AND l.prior_type = 2
+        ORDER BY l.org_flag DESC
+        LIMIT 1
+        ) service, r_server_extend `serve`
+        WHERE `serve`.server_id = r.parent_device_id
+        AND service.service_id = r.child_device_id
+        AND r.parent_device_type = '0201';
+    </sql>
+    <sql id="queryBroadcastByAssetNo">
+        SELECT ip FROM v_device_network
+        WHERE v_device_network.device_code = ?;
+    </sql>
+    <sql id="queryAssetCodeByIp">
+        SELECT device_code FROM v_device_network
+        WHERE v_device_network.ip = ?;
+    </sql>
+    <sql id="insertBroadcastStatus">
+        REPLACE INTO d_broadcast_status (broadcast_id, dt_data, dev_status, dev_volume)
+        SELECT device_id, FROM_UNIXTIME(?/1000), ?, ? FROM r_device_asset
+        WHERE r_device_asset.device_code = ?;
+    </sql>
+    <sql id="updateDeviceStatus">
+        REPLACE INTO `d_device_status` (device_id, dt_running_changed, st_running, st_online)
+        SELECT device_id, FROM_UNIXTIME(?/1000), ?, ?
+        FROM `r_device_asset`
+        WHERE `r_device_asset`.device_code = ?;
+    </sql>
+    <sql id="queryDeviceCodeByUsiCamId">
+        SELECT device_code FROM r_device_asset, r_camera_extend
+        WHERE r_device_asset.device_id = r_camera_extend.cam_id
+        AND r_camera_extend.usi_cam_id = ?;
+    </sql>
+    <sql id="queryUsiCamIdByDeviceCode">
+        SELECT usi_cam_id FROM r_device_asset, r_camera_extend
+        WHERE r_device_asset.device_id = r_camera_extend.cam_id
+        AND device_code = ?;
+    </sql>
+    <sql id="updateBroadcastStatus">
+        REPLACE INTO `d_broadcast_status` (broadcast_id, dt_data, dev_status, dev_volume)
+        VALUES(?, FROM_UNIXTIME(?/1000), ?, ?);
+    </sql>
+    <!-- ===========================告警和设备状态数据信息======================= -->
+    <!-- =======.告 警 ===== -->
+    <sql id="service0909901001DeviceEventUpt">
+        UPDATE ipole.e_device_event
+        SET st_operate = '3',
+        dt_end_operate = IFNULL(dt_end_operate, sysdate()),
+        dt_modify = sysdate(),
+        st_confirm = '2',
+        dt_confirm = now(),
+        user_modify = 'collecter'
+        WHERE
+        device_id = ?
+        AND dt_event >= ? - INTERVAL 1 MONTH
+        AND dt_confirm IS NULL
+        AND event_code = ?
+    </sql>
+    <sql id="service0909901001DeviceEventQuery">
+        SELECT
+        count(1) count
+        FROM
+        ipole.e_device_event
+        WHERE
+        device_id = ?
+        AND dt_event =?
+        AND event_second_type_code = ?
+    </sql>
+    <sql id="service0909901001DeviceEventInsert">
+        INSERT INTO ipole.e_device_event (
+        dt_event,
+        device_id,
+        org_code,
+        road_id,
+        event_name,
+        event_code,
+        event_source,
+        st_operate,
+        dt_create,
+        user_create
+        )
+        VALUES
+        (
+        ?,?,?,?, get_device_event_name (?),?,
+        '1',
+        '1',
+        sysdate(),
+        'collecter'
+        )
+    </sql>
+    <!-- =======.设备状态 ===== -->
+    <sql id="service0909902001DeviceStatusUpt">
+        UPDATE ipole.d_device_status
+        SET st_running = ?,
+        dt_running_changed = IF(user_modify='heartbeat',dt_running_changed,?),
+        st_online = ?,
+        dt_online_changed =IF(user_modify='heartbeat',dt_online_changed,?),
+        dt_last_connect = IF(user_modify='heartbeat',dt_last_connect,dt_online_changed),
+        dt_modify = sysdate(),
+        user_modify = ?
+        WHERE
+        device_id = ?
+    </sql>
+    <!-- =======.设备状态历史表 ===== -->
+    <sql id="service0909902001DeviceStatusHistory">
+        INSERT INTO ipole.d_device_status_history (
+        device_id,
+        st_running,
+        dt_running_changed,
+        st_online,
+        dt_online_changed,
+        dt_last_connect,
+        dt_create,
+        user_create
+        ) SELECT
+        device_id,
+        st_running,
+        ?,
+        st_online,
+        ?,
+        dt_online_changed,
+        dt_create,
+        user_create
+        FROM
+        d_device_status
+        WHERE
+        device_id = ?
+    </sql>
+
+    <!-- 根据资产编号查询资产事务联动动作配置信息 -->
+    <sql id="findActionEventByAssetNo">
+        SELECT DISTINCT
+        a.ab_id AS actionId,
+        GROUP_CONCAT(b.event_code) AS eventCode,
+        ? deviceType
+        FROM
+        ipole.d_action_base a
+        INNER JOIN ipole.d_action_event_rela b ON b.ab_id = a.ab_id
+        LEFT JOIN d_action_device_rela dr ON dr.ab_id=a.ab_id
+        WHERE a.flag_use = ?
+        AND EXISTS (
+        SELECT
+        1
+        FROM
+        ipole.r_device_asset t1,
+        ipole.s_org_level ol
+        WHERE
+        t1.flag_delete = ?
+        AND t1.device_code = ?
+        AND t1.first_type_code = b.first_type_code
+        AND t1.second_type_code = b.second_type_code
+        AND t1.org_code = ol.child_org_code
+        AND ol.org_code = a.org_code
+        AND ol.prior_type = 1
+        AND t1.device_id=IF(dr.ab_id is null,t1.device_id,dr.device_id)
+        )
+        GROUP BY a.ab_id
+    </sql>
+
+    <!-- 根据动作ID查询资产事务联动动作条件信息 -->
+    <sql id="findActionConditionsByActionId">
+        SELECT
+        a.ac_id AS "acId",
+        a.ab_id AS "abId",
+        a.condition_content AS "condition",
+        a.unit_time AS "unitTime"
+        FROM
+        ipole.d_action_condition a
+        WHERE
+        a.ab_id = ?
+    </sql>
+
+    <!-- 根据动作ID查询资产事务联动动作参数 -->
+    <sql id="findActionConditionParamsByActionId">
+        SELECT
+        a.amp_id AS "ampId",
+        a.ab_id AS "abId",
+        a.action_code AS "actionCode",
+        a.action_mode AS "actionMode",
+        a.action_param AS "actionParam"
+        FROM
+        ipole.d_action_mode_param a
+        WHERE
+        a.flag_use = ?
+        AND a.ab_id in(?)
+    </sql>
+
+    <!-- 根据资产编号查询资产信息 -->
+    <sql id="findAssetByAssetNo">
+        SELECT
+        a.device_name AS "assetName",
+        c.code_name AS "firstType",
+        (
+        SELECT
+        code_name
+        FROM
+        s_code
+        WHERE
+        parent_code_id = c.code_id
+        AND code_value = a.second_type_code
+        ) AS "secondType",
+        (
+        SELECT
+        e.ec_name
+        FROM
+        `d_event_config` e,
+        d_action_event_rela rela
+        WHERE
+        rela.event_code = ?
+        AND rela.event_code = e.ec_code
+        AND e.device_type = CONCAT(
+        rela.first_type_code,
+        rela.second_type_code)
+        AND rela.ab_id = ?
+        AND rela.first_type_code = a.first_type_code
+        AND rela.second_type_code = a.second_type_code
+        ) eventName
+        FROM
+        ipole.r_device_asset a,
+        ipole.s_code c
+        WHERE
+        a.first_type_code = c.code_value
+        AND c.code_type_id = 1000
+        AND c.parent_code_id IS NULL
+        AND a.flag_delete = ?
+        AND a.device_code = ?
+    </sql>
+
+    <!-- 根据动作方式参数配置编号查询设备与监控参数配置信息 -->
+    <sql id="findDeviceByActionModeParamId">
+        SELECT
+        a.adp_id AS "adpId",
+        a.amp_id AS "ampId",
+        a.device_id AS "deviceId",
+        a.monitor_device_id AS "monitorDeviceId",
+        c.device_code AS "deviceNo",
+        d.device_code AS "monitorDeviceNo",
+        b.action_code AS "actionCode",
+        a.action_param AS "actionParam"
+        FROM
+        ipole.d_action_device_param a
+        LEFT JOIN ipole.d_action_mode_param b ON b.amp_id = a.amp_id
+        LEFT JOIN ipole.r_device_asset c ON c.device_id = a.device_id
+        LEFT JOIN ipole.r_device_asset d ON d.device_id = a.monitor_device_id
+        WHERE
+        a.amp_id = ?
+        AND c.device_code = ?
+    </sql>
+
+    <!-- 根据停车被监控设备查询最近的联动设备 -->
+    <sql id="findParkDeviceByNear">
+        SELECT
+        a.device_code AS monitorDeviceNo
+        FROM
+        r_device_asset a
+        INNER JOIN (
+        SELECT
+        n.cam_id,
+        round(get_distance(lat1,lng1,lat2,lng2)) * 1000 AS distance,
+        n.org_name
+        FROM
+        (
+        SELECT
+        asset.gis_pos_x AS lng1,
+        asset.gis_pos_y AS lat1
+        FROM
+        r_spot_monitor_extend monitor
+        INNER JOIN r_device_asset asset ON monitor.monitor_id = asset.device_id
+        WHERE
+        asset.device_code = ?
+        AND asset.flag_delete = ?
+        ) m
+        JOIN (
+        SELECT
+        cam_id,
+        camera.gis_pos_x AS lng2,
+        camera.gis_pos_y AS lat2,
+        org.org_name,
+        r.parent_device_id lamp_id
+        FROM
+        r_camera_extend camera
+        INNER JOIN r_device_asset assets ON camera.cam_id = assets.device_id
+        INNER JOIN r_device_relation r ON assets.device_id = r.child_device_id AND r.parent_device_type = '0301'
+        INNER JOIN s_org org
+        WHERE
+        assets.org_code = org.org_code
+        AND assets.flag_delete = '0'
+        ) n ON 1 = 1
+        WHERE
+        lng1 - lng2 &lt; 1
+        AND lng2 - lng1 &lt; 1
+        AND lat1 - lat2 &lt; 1
+        AND lat2 - lat1 &lt; 1
+        ORDER BY
+        distance
+        LIMIT 2
+        ) b ON b.cam_id = a.device_id
+    </sql>
+
+    <!-- 根据井盖被监控设备查询最近的联动设备 -->
+    <sql id="findManholeDeviceByNear">
+        SELECT
+        a.device_code AS monitorDeviceNo
+        FROM
+        r_device_asset a
+        INNER JOIN (
+        SELECT
+        n.cam_id,
+        round(get_distance(lat1,lng1,lat2,lng2)) * 1000 AS distance,
+        n.org_name
+        FROM
+        (
+        SELECT
+        asset.gis_pos_x AS lng1,
+        asset.gis_pos_y AS lat1
+        FROM
+        r_manhole_monitor_extend manhole
+        INNER JOIN r_device_asset asset ON manhole.monitor_id = asset.device_id
+        WHERE
+        asset.device_code = ?
+        AND asset.flag_delete = ?
+        ) m
+        JOIN (
+        SELECT
+        cam_id,
+        lamp.gis_pos_x AS lng2,
+        lamp.gis_pos_y AS lat2,
+        org.org_name,
+        r.parent_device_id lamp_id
+        FROM
+        r_camera_extend camera
+        INNER JOIN r_device_asset assets ON camera.cam_id = assets.device_id
+        INNER JOIN r_device_relation r ON assets.device_id = r.child_device_id
+        INNER JOIN r_device_asset lamp ON r.parent_device_id = lamp.device_id AND r.parent_device_type = '0301'
+        INNER JOIN s_org org WHERE
+        assets.org_code = org.org_code
+        AND assets.flag_delete = '0'
+        ) n ON 1 = 1
+        WHERE
+        lng1 - lng2 &lt; 1
+        AND lng2 - lng1 &lt; 1
+        AND lat1 - lat2 &lt; 1
+        AND lat2 - lat1 &lt; 1
+        ORDER BY
+        distance
+        LIMIT 2
+        ) b ON b.cam_id = a.device_id
+    </sql>
+
+    <!-- 根据地区编号和联系方式查询联系地址 -->
+    <sql id="findConcatNumberById">
+        SELECT
+        a.email_address AS emailAddress,
+        a.phone_number AS phoneNumber,
+        a.org_code AS orgCode,
+        a.concat_name AS concatName
+        FROM
+        ipole.d_concat_config a
+        WHERE a.cc_id = ?
+    </sql>
+
+    <!--查询邮件服务器配置信息-->
+    <sql id="getEmailConfig">
+        SELECT
+        a.contents AS "serverConfig"
+        FROM
+        ipole.d_server_config a
+        WHERE a.sc_type = 1 LIMIT 1
+    </sql>
+
+    <!--根据动作ID查询周期设置表 -->
+    <sql id="findActionCycleRealByActionId">
+        SELECT
+        a.ab_id AS "abId",
+        a.cycle_day AS "cycleDay",
+        a.cycle_hour AS "cycleHour"
+        FROM
+        ipole.d_action_cycle_rela a
+        WHERE
+        a.ab_id = ?
+        AND
+        a.flag_use = ?
+    </sql>
+
+    <!--根据动作ID查询有效日期表 -->
+    <sql id="findActionTimeRealByActionId">
+        SELECT
+        a.ab_id AS "abId",
+        UNIX_TIMESTAMP(a.dt_valid_begin) * 1000 AS "dtValidBegin",
+        UNIX_TIMESTAMP(a.dt_valid_end)* 1000 AS "dtValidEnd"
+        FROM
+        ipole.d_action_time_rela a
+        WHERE
+        a.ab_id = ?
+    </sql>
+
+    <!--根据变量编码查询变量设置表 -->
+    <sql id="findActionEventVarByVarCode">
+        SELECT
+        a.var_name AS "varName",
+        a.var_code AS "varCode"
+        FROM
+        ipole.d_event_var a
+        WHERE
+        a.var_code = ? AND a.flag_use = ?
+    </sql>
+
+    <!--获取视频播放信息-->
+    <sql id="getVideoInfoByDeviceCode">
+        SELECT
+        a.org_code orgCode,
+        s.usi_cam_id usiCamId
+        FROM
+        ipole.r_device_asset a,
+        ipole.r_camera_extend s
+        WHERE
+        a.device_code = ? AND a.device_id = s.cam_id
+    </sql>
+
+    <!-- 根据意见求助被监控设备查询最近的联动设备 -->
+    <sql id="findVideoDeviceByHelperNear">
+        SELECT
+        a.device_code AS monitorDeviceNo
+        FROM
+        r_device_asset a
+        INNER JOIN (
+        SELECT
+        n.cam_id,
+        round(get_distance(lat1,lng1,lat2,lng2)) * 1000 ,
+        n.org_name
+        FROM
+        (
+        SELECT
+        lamp.gis_pos_x AS lng1,
+        lamp.gis_pos_y AS lat1
+        FROM
+        r_helper_extend helper
+        INNER JOIN r_device_asset asset ON helper.helper_id = asset.device_id
+        INNER JOIN r_device_relation r ON r.child_device_id = helper.device_id AND r.parent_device_type = '0301'
+        INNER JOIN r_device_asset lamp ON r.parent_device_id = lamp.device_id
+        WHERE
+        asset.device_code = ?
+        AND asset.flag_delete = ?
+        ) m
+        JOIN (
+        SELECT
+        cam_id,
+        lamp.gis_pos_x AS lng2,
+        lamp.gis_pos_y AS lat2,
+        org.org_name,
+        lamp.device_id lamp_id
+        FROM
+        r_camera_extend camera
+        INNER JOIN r_device_asset assets ON camera.cam_id = assets.device_id
+        INNER JOIN r_device_relation r ON r.child_device_id = assets.device_id AND r.parent_device_type = '0301'
+        INNER JOIN r_device_asset lamp ON r.parent_device_id = lamp.device_id
+        INNER JOIN s_org org
+        WHERE
+        assets.org_code = org.org_code
+        AND assets.flag_delete = '0'
+        ) n ON 1 = 1
+        WHERE
+        lng1 - lng2 &lt; 1
+        AND lng2 - lng1 &lt; 1
+        AND lat1 - lat2 &lt; 1
+        AND lat2 - lat1 &lt; 1
+        ORDER BY
+        distance
+        LIMIT 2
+        ) b ON b.cam_id = a.device_id
+    </sql>
+
+    <!-- 根据水位检测仪资产编号以就近原则进行联动资产信息查询. -->
+    <sql id="findVideoDeviceByWaterLevelNear">
+        SELECT
+        a.device_code AS monitorDeviceNo
+        FROM
+        r_device_asset a
+        INNER JOIN (
+        SELECT
+        n.cam_id,
+        round(
+        get_distance (lat1, lng1, lat2, lng2)
+        ) * 1000 AS distance,
+        n.org_name
+        FROM
+        (
+        SELECT
+        asset.gis_pos_x AS lng1,
+        asset.gis_pos_y AS lat1
+        FROM
+        r_waterlevel_monitor_extend extend
+        INNER JOIN r_device_asset asset ON extend.waterlevel_id = asset.device_id
+        WHERE
+        asset.device_code = ?
+        AND asset.flag_delete = ?
+        ) m
+        JOIN (
+        SELECT
+        cam_id,
+        lamp.gis_pos_x AS lng2,
+        lamp.gis_pos_y AS lat2,
+        org.org_name,
+        lamp.device_id
+        FROM
+        r_camera_extend camera
+        INNER JOIN r_device_asset assets ON camera.cam_id = assets.device_id
+        INNER JOIN r_device_relation r ON assets.device_id = r.child_device_id
+        INNER JOIN r_device_asset lamp ON r.parent_device_id = lamp.device_id AND r.parent_device_type = '0301'
+        INNER JOIN s_org org
+        WHERE
+        assets.org_code = org.org_code
+        AND assets.flag_delete = '0'
+        ) n ON 1 = 1
+        WHERE
+        lng1 - lng2 &lt; 1
+        AND lng2 - lng1 &lt; 1
+        AND lat1 - lat2 &lt; 1
+        AND lat2 - lat1 &lt; 1
+        ORDER BY
+        distance
+        LIMIT 2
+        ) b ON b.cam_id = a.device_id
+    </sql>
+
+
+    <!-- 根据被监控设备查询最近的联动设备 -->
+    <sql id="findCameraDeviceByAssetNo">
+        SELECT
+        a.device_code AS monitorDeviceNo
+        FROM
+        r_device_asset a
+        INNER JOIN (
+        SELECT
+        n.cam_id,
+        round(get_distance(lat1,lng1,lat2,lng2)) * 1000 AS distance,
+        n.org_name
+        FROM
+        (
+        SELECT
+        asset.gis_pos_x AS lng1,
+        asset.gis_pos_y AS lat1
+        FROM
+        r_device_asset asset
+        WHERE
+        asset.device_code = ?
+        AND asset.flag_delete = ?
+        ) m
+        JOIN (
+        SELECT
+        cam_id,
+        lamp.gis_pos_x AS lng2,
+        lamp.gis_pos_y AS lat2,
+        org.org_name,
+        r.parent_device_id lamp_id
+        FROM
+        r_camera_extend camera
+        INNER JOIN r_device_asset assets ON camera.cam_id = assets.device_id
+        INNER JOIN r_device_relation r ON assets.device_id = r.child_device_id
+        INNER JOIN r_device_asset lamp ON r.parent_device_id = lamp.device_id AND r.parent_device_type = '0301'
+        INNER JOIN s_org org
+        WHERE
+        assets.org_code = org.org_code
+        AND assets.flag_delete = '0'
+        ) n ON 1 = 1
+        WHERE
+        lng1 - lng2 &lt; 1
+        AND lng2 - lng1 &lt; 1
+        AND lat1 - lat2 &lt; 1
+        AND lat2 - lat1 &lt; 1
+        ORDER BY
+        distance
+        LIMIT 2
+        ) b ON b.cam_id = a.device_id
+    </sql>
+
+    <!--根据动作ID以及事件编码获取日志相关参数-->
+    <sql id="findActionLogParams">
+        SELECT
+        a.action_name AS actionName,
+        (
+        SELECT code_name FROM s_code where code_type_id=1212 and code_value=a.event_level
+        ) AS eventLevel,
+        (
+        get_action_event_name(b.first_type_code,b.second_type_code,?)
+        ) AS eventName,
+        b.org_code AS orgCode,
+        (
+        SELECT org_name FROM s_org WHERE org_code = b.org_code
+        ) AS orgName,
+        b.device_id AS deviceId,
+        (
+        SELECT r.road_name FROM r_road r WHERE r.road_id=b.road_id
+        ) roadName
+        FROM
+        d_action_base a JOIN r_device_asset b ON b.device_code = ?
+        WHERE a.ab_id = ?
+    </sql>
+
+    <!-- 保存动作日志 -->
+    <sql id="insertActionLog">
+        INSERT INTO d_action_log (
+        device_id,
+        ab_id,
+        event_code,
+        event_name,
+        event_level,
+        org_code,
+        action_code,
+        action_content,
+        dt_action_touch,
+        dt_create
+        )
+        VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+    </sql>
+
+    <!--根据设备类型和事件编码查询表达式-->
+    <sql id="getExpressionInfo">
+        SELECT
+        var.var_name varName,
+        var.var_code varCode
+        FROM
+        d_event_var var,
+        d_event_config ec
+        WHERE
+        var.ec_id = ec.ec_id
+        AND var.flag_use = 1
+        AND ec.flag_use = 1
+        AND ec.device_type= ?
+        AND ec.ec_code = ?
+        AND var.var_name = ?
+    </sql>
+
+    <!--根据服务id获取服务的ip、端口.-->
+    <sql id="getServiceInfoByServiceId">
+        SELECT
+        IFNULL(`serve`.vpn_ip,`serve`.ip) ip,
+        IFNULL(service.vpn_port,service.`port`) `port`
+        FROM
+        r_device_relation r,
+        r_service_extend service,
+        r_server_extend `serve`
+        WHERE
+        `serve`.server_id = r.parent_device_id
+        AND service.service_id = r.child_device_id
+        AND r.child_device_id = ?
+        AND service.service_type = ?
+        AND r.parent_device_type = '0201'
+    </sql>
+
+    <!-- =======根据资产编号获取资产数据.===== -->
+    <sql id="getAssetDataByAssetNo">
+        SELECT
+        a.device_id deviceID,
+        a.model_code equipType,
+        a.mac_addr macAddr,
+        a.factory_code factoryCode,
+        a.first_type_code firstTypeCode,
+        a.second_type_code secondTypeCode,
+        a.org_code orgNo,
+        parent_device_id lampID,
+        a.road_id roadID
+        FROM
+        ipole.r_device_asset a
+        LEFT JOIN r_device_relation r
+        ON r.child_device_id=a.device_id and r.parent_device_id='0301'
+        WHERE
+        a.device_code = ?
+        AND a.flag_delete in(0,1,2,3)
+    </sql>
+
+    <sql id="getServiceInfoByOrgCode">
+        SELECT
+        IFNULL(`serve`.vpn_ip, `serve`.ip) ip,
+        `port`
+        FROM
+        r_device_relation r,
+        (
+        SELECT
+        service_id,
+        IFNULL(
+        vpn_port,
+        `port`
+        ) `port`
+        FROM
+        r_service_extend,
+        r_device_asset a,
+        s_org_level l
+        WHERE
+        a.device_id = service_id
+        AND a.org_code = l.child_org_code
+        AND l.org_code = ?
+        AND service_type = ?
+        AND l.prior_type = 2
+        ORDER BY
+        l.org_flag DESC
+        LIMIT 1
+        ) service,
+        r_server_extend `serve`
+        WHERE
+        `serve`.server_id = r.parent_device_id
+        AND service.service_id = r.child_device_id
+        AND r.parent_device_type = '0201'
+    </sql>
+
+    <!-- 根据id和类型查询显示的大屏资产. -->
+    <sql id="getBigScreenInfoByTypeAndId">
+        SELECT
+        r.device_code AS bigScreenAssetNo,
+        r.mac_addr AS macAddr,
+        rela.parent_device_id serviceId
+        FROM r_device_asset r
+        join r_bigscreen_extend be on be.bigscreen_id=r.device_id
+        join d_bigscreen_push_rela bp on bp.bigscreen_id=r.device_id
+        left join r_device_relation rela on rela.child_device_id = be.bigscreen_id and rela.parent_device_type='2005'
+        WHERE
+        r.run_status='2'
+        AND r.flag_delete='0'
+        AND bp.target_type=?
+        AND bp.target_id=?
+    </sql>
+
+    <!--根据资产编号获取停车设备对应的停车场id-->
+    <sql id="getSpotPlaceIdByAssetNo">
+        SELECT
+        b.place_id placeID
+        FROM
+        ipole.r_device_asset a,
+        ipole.r_park_place b,
+        ipole.r_spot_monitor_extend c
+        WHERE
+        a.device_id = c.monitor_id
+        AND b.place_id = c.place_id
+        AND a.device_code = ?
+        AND a.flag_delete = ?
+    </sql>
+    <!-- 保存动作日志 -->
+    <sql id="insertActionLog">
+        INSERT INTO d_action_log (
+        device_id,
+        ab_id,
+        event_code,
+        event_name,
+        event_level,
+        org_code,
+        action_code,
+        action_content,
+        dt_action_touch,
+        dt_create
+        )
+        VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, now())
+    </sql>
+</sqls>

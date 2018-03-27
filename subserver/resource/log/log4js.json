@@ -1,0 +1,58 @@
+{
+  "appenders": {
+    "console": {
+      "type": "console"
+    },
+    "subServer": {
+      "type": "dateFile",
+      "filename": "D://log//subServer",
+      "pattern": "-yyyy-MM-dd.log",
+      "alwaysIncludePattern": true
+    },
+    "request": {
+      "type": "dateFile",
+      "filename": "D://log//request",
+      "pattern": "-yyyy-MM-dd.log",
+      "alwaysIncludePattern": true
+    },
+    "db": {
+      "type": "dateFile",
+      "filename": "D://log//database",
+      "pattern": "-yyyy-MM-dd.log",
+      "alwaysIncludePattern": true
+    }
+  },
+  "categories": {
+    "default": {
+      "appenders": [
+        "subServer"
+      ],
+      "level": "DEBUG"
+    },
+    "console": {
+      "appenders": [
+        "console"
+      ],
+      "level": "DEBUG"
+    },
+    "subServer": {
+      "appenders": [
+        "subServer"
+      ],
+      "level": "DEBUG"
+    },
+    "request": {
+      "appenders": [
+        "request"
+      ],
+      "level": "DEBUG"
+    },
+    "db": {
+      "appenders": [
+        "db"
+      ],
+      "level": "DEBUG"
+    }
+  },
+  "replaceConsole": true
+}
